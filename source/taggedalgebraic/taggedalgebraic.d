@@ -624,26 +624,49 @@ unittest
 	assert(ta.opDispatch!"sizeof" == (int[]).sizeof);
 }
 
-
-/** Tests if the algebraic type stores a value of a certain data type.
-*/
-bool hasType(T, U)(in ref TaggedAlgebraic!U ta)
+// If `-preview=in` is enabled, just use `in`, as it will apply `ref` if needed
+static if (hasPreviewIn)
 {
-	alias Fields = Filter!(fieldMatchesType!(U, T), ta.m_union.fieldNames);
-	static assert(Fields.length > 0, "Type "~T.stringof~" cannot be stored in a "~(TaggedAlgebraic!U).stringof~".");
-
-	switch (ta.kind) {
+	/** Tests if the algebraic type stores a value of a certain data type.
+	 */
+	bool hasType(T, U)(in TaggedAlgebraic!U ta)
+	{
+		alias Fields = Filter!(fieldMatchesType!(U, T), ta.m_union.fieldNames);
+		static assert (Fields.length > 0,
+					   "Type " ~ T.stringof ~ " cannot be stored in a " ~
+					   (TaggedAlgebraic!U).stringof ~ ".");
+		switch (ta.kind) {
 		default: return false;
-		foreach (i, fname; Fields)
+			foreach (i, fname; Fields)
 			case __traits(getMember, ta.Kind, fname):
 				return true;
+		}
+		assert(false); // never reached
 	}
-	assert(false); // never reached
 }
-/// ditto
-bool hasType(T, U)(in TaggedAlgebraic!U ta)
+// Otherwise we provide an overview for lvalue, and one for rvalue
+else
 {
-	return hasType!(T, U)(ta);
+	bool hasType(T, U)(in ref TaggedAlgebraic!U ta)
+	{
+		alias Fields = Filter!(fieldMatchesType!(U, T), ta.m_union.fieldNames);
+		static assert (Fields.length > 0,
+					   "Type " ~ T.stringof ~ " cannot be stored in a " ~
+					   (TaggedAlgebraic!U).stringof ~ ".");
+		switch (ta.kind) {
+		default: return false;
+			foreach (i, fname; Fields)
+			case __traits(getMember, ta.Kind, fname):
+				return true;
+		}
+		assert(false); // never reached
+	}
+
+	/// ditto
+	bool hasType(T, U)(in TaggedAlgebraic!U ta)
+	{
+		return hasType!(T, U)(ta);
+	}
 }
 
 ///
@@ -1390,3 +1413,12 @@ unittest {
 	auto ta = TA(12);
 	static assert(!is(typeof(ta.put(12))));
 }
+
+/// Helper value that determine if `-preview=in` is being used
+private enum bool hasPreviewIn = __traits(compiles, ()
+    {
+        static struct NonCopyable { @disable this(this); }
+        static void func (in NonCopyable nc) {}
+        NonCopyable val;
+        func(val); // If `ref` is not applied, this doesn't compile
+    });
